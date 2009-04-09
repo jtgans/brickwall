@@ -1,0 +1,203 @@
+#!/bin/bash
+
+if [ -f /etc/default/iptables ]; then
+    source /etc/default/iptables
+fi
+
+IPTABLES=/sbin/iptables
+CHAIN=brickwall-$IFACE
+
+if [ "$UID" != "0" ] || [ "$EUID" != "0" ]; then
+    IPTABLES="/usr/bin/sudo /sbin/iptables "
+fi
+
+if [ "$IF_FIREWALL_DEBUG" != "" ]; then
+    set -x
+    IPTABLES="/usr/bin/logger -s -- /sbin/iptables "
+fi
+
+function initialize()
+{
+    # Clean up the iptables from system boot.
+    $IPTABLES -F
+    $IPTABLES -Z
+    $IPTABLES -X
+    $IPTABLES -t nat -F
+    $IPTABLES -t nat -Z
+    $IPTABLES -t nat -X
+
+    $IPTABLES -P INPUT DROP
+    $IPTABLES -P OUTPUT ACCEPT
+    $IPTABLES -P FORWARD ACCEPT
+
+    # Make sure that packets are part of established or related streams are allowed through
+    $IPTABLES -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+}
+
+function teardown()
+{
+    $IPTABLES -D INPUT -j $CHAIN -i $IFACE 2>/dev/null
+    $IPTABLES -F $CHAIN 2>/dev/null
+    $IPTABLES -X $CHAIN 2>/dev/null
+}
+
+function _open_port()
+{
+    local chain=brickwall-$1
+    local iface=$1
+    local port=$2
+
+    while $IPTABLES -D $chain -i $iface -p tcp --dport $port -j DROP 2>/dev/null; do
+        :
+    done
+
+    while $IPTABLES -D $chain -i $iface -p udp --dport $port -j DROP 2>/dev/null; do
+        :
+    done
+
+    $IPTABLES -I $chain -i $iface -p tcp --dport $port -j ACCEPT
+    $IPTABLES -I $chain -i $iface -p udp --dport $port -j ACCEPT
+}
+
+function _close_port()
+{
+    local chain=brickwall-$1
+    local iface=$1
+    local port=$2
+
+    while $IPTABLES -D $chain -i $iface -p tcp --dport $port -j ACCEPT 2>/dev/null; do
+        :
+    done
+
+    while $IPTABLES -D $chain -i $iface -p udp --dport $port -j ACCEPT 2>/dev/null; do
+        :
+    done
+
+    $IPTABLES -I $chain -i $iface -p tcp --dport $port -j DROP
+    $IPTABLES -I $chain -i $iface -p udp --dport $port -j DROP
+}
+
+function setup()
+{
+    local port
+    local action
+    local start
+    local end
+
+    $IPTABLES -P INPUT DROP
+    $IPTABLES -N $CHAIN 2>/dev/null
+    $IPTABLES -F $CHAIN 2>/dev/null
+    $IPTABLES -A INPUT -j $CHAIN -i $IFACE
+
+    for port in $IF_FIREWALL_PORTS; do
+        if [ "$port" == "all" ] || [ "$port" == "ALL" ]; then
+		    $IPTABLES -A $CHAIN -i $IFACE -j ACCEPT
+            continue
+        fi
+
+        if [ "$port" == "-all" ] || [ "$port" == "-ALL" ]; then
+		    $IPTABLES -A $CHAIN -i $IFACE -j DROP
+            continue
+        fi
+
+        # NNN-NNN
+        if echo $port |grep -qE '^[0-9]+-[0-9]+$'; then
+            action=ACCEPT
+            start=$(echo $port |sed 's/-.*//')
+            end=$(echo $port |sed 's/.*-//')
+        fi
+
+        # -NNN-NNN
+        if echo $port |grep -qE '^-[0-9]+-[0-9]+$'; then
+            action=DROP
+            start=$(echo $port |sed 's/^-//' |sed 's/-.*$//')
+            end=$(echo $port |sed 's/^-//' |sed 's/.*-//')
+        fi
+
+        # NNN
+        if echo $port |grep -qE '^[0-9]+$'; then
+            action=ACCEPT
+            start=$port
+            end=$port
+        fi
+
+        # -NNN
+        if echo $port |grep -qE '^-[0-9]+$'; then
+            action=DROP
+            start=$(echo $port |sed 's/^-//')
+            end=$(echo $port |sed 's/^-//')
+        fi
+
+        [ ! -z TEST ] && echo "port: $port action: $action start: $start end: $end"
+
+        for port in $(seq $start 1 $end); do
+            $IPTABLES -A $CHAIN -i $IFACE -p tcp --dport $port -j $action
+            $IPTABLES -A $CHAIN -i $IFACE -p udp --dport $port -j $action
+        done
+    done
+}
+
+if [ -z "$MODE" ]; then
+    case $1 in
+        start)
+            initialize
+            ;;
+
+        stop)
+            ;;
+
+        restart)
+            initialize
+            ;;
+
+        open)
+            iface=$2
+            port=$3
+            [ -z $port ] && echo "Usage: brickwall open <iface> <port>" && exit 1
+            [ -z $iface ] && echo "Usage: brickwall open <iface> <port>" && exit 1
+
+            _open_port $iface $port
+            ;;
+
+        close)
+            iface=$2
+            port=$3
+            [ -z $port ] && echo "Usage: brickwall close <iface> <port>" && exit 1
+            [ -z $iface ] && echo "Usage: brickwall close <iface> <port>" && exit 1
+
+            _close_port $iface $port
+            ;;
+
+        show)
+            iface=$2
+            [ -z $iface ] && echo "Usage: brickwall show <iface>" && exit 1
+
+            $IPTABLES -nvL brickwall-$iface 2>/dev/null
+
+            if [ "$?" != "0" ]; then
+                echo "Brickwall not initialized for $iface."
+            fi
+            ;;
+
+        *)
+            echo "Usage: brickwall (start|stop|restart|open|close|show)"
+            exit 1
+            ;;
+    esac
+else
+    case $MODE in
+        start)
+            teardown
+            setup
+            ;;
+
+        stop)
+            teardown
+            ;;
+
+        *)
+            echo "Unknown mode specified: '$MODE'"
+            exit 1
+            ;;
+    esac
+fi

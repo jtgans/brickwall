@@ -1,0 +1,127 @@
+* Brickwall: A simplistic firewall for use with desktops and laptops
+
+Designed and written by June Tate-Gans <june@theonelab.com>.
+
+
+*** Why another crazy firewall script?
+
+Because everything else in the Debian firewall ecosystem is either too
+GUI based, too heavy, or just plain over engineered for what a laptop
+requires.
+
+All I needed was the ability to set the firewall personality based
+upon my Debian Lenny wpa_supplicant roaming configuration. The
+ifupdown tools already provide a way to handle this natively, so I
+just wrote this little script to give me some flexibility.
+
+Also, I found uruk to be far too weird when it comes to
+configuration. So that came into play, too.
+
+
+*** How does it work?
+
+Pretty simply, actually. Just do the following:
+
+  - Throw the brickwall script into /usr/sbin
+  - Add a symlink into /etc/network/if-up.d and /etc/network/if-down.d
+    for it.
+  - Add a symlink to the script from /etc/rc2.d to setup the tables
+    cleanly at start up. No need for a kill script. Probably best to
+    add this somewhere between priorities 00 to 40.
+  - Add in some firewall-ports lines to the interfaces you want to have
+    open ports on.
+
+Simple, no? There's some other utility to the script as well. It
+allows you to open and close ports on individual interfaces on a
+temporary basis. To make these ports open or closed permanently, add
+them to to the firewall-ports line for the interface stanza.
+
+
+*** No, really, what is this `firewall-ports' thing?
+
+Oh, all right, I'll give you the nitty-gritty. Just remember: you
+asked for it.
+
+Essentially the =firewall-ports= line is a simple specification to the
+brickwall script of what incoming ports you want open or
+closed. Outgoing and forwarded ports are always allowed -- there's
+really little to no reason to use any other policy than that on a
+laptop or desktop machine you have root on. If you want to control
+those, you want a different package. Sorry -- I don't plan on
+integrating those features as they're really not generally useful, and
+would require more engineering to accomplish than it's worth (that
+being said, patches are welcome! *nudge nudge wink wink*).
+
+So, =firewall-ports= is a space-separated list of ports to allow or
+deny, with allowed ports just listed normally, and denied ports
+prefixed with a `-'. All ports must be listed in decimal notation,
+with the exception of the special `all' port, which basically tells
+brickwall to add a line that matches everything.
+
+Port ranges may also be specified by separating two decimal numbers
+with a single `-'. So to open ports 8000 to 9000, simply say
+`8000-9000'. Closing those ports works the same as with individual
+port numbers.
+
+Note that order here is important! brickwall does an iptables append
+for every port listed, so if you start the list by denying all ports,
+you'll end up with a completely locked down system (until someone goes
+and does a `brickwall open <iface> <port>' of course). Also note that
+protocols are immaterial here -- brickwall assumes tcp and udp
+always.
+
+So for example, say we wanted to be open to the world, but block
+incoming requests to a test web server running on port 8080. The line
+for this would be:
+
+  : firewall-ports -8080 all
+
+If we wanted to do the inverse, say, deny everything but allow port
+8080, we'd do the opposite:
+
+  : firewall-ports 8080 -all
+
+Of course, the `-all' could be left off, as the default policy for the
+INPUT chain is set to DROP, but it's good to put it in there for
+clarity. A slightly more complex example:
+
+  : firewall-ports 80 -53 143 1-5 -10-15 all
+
+This literally means the following:
+
+  - Accept incoming requests on port 80, 143, 1 through 5, and
+    everything not listed.
+  - Deny incoming requests on port 53 and 10 through 15.
+
+Nice and simple, no? iptables makes me smile. =o)
+
+
+*** What's these additional abilities you mentioned earlier?
+
+Ah, well, brickwall allows you to open and close ports on a temporary
+basis for specific interfaces as well. Just do the following:
+
+  : brickwall open <iface> <port>
+
+Or
+
+  : brickwall close <iface> <port>
+
+Note that port must be a single port number -- ranges are not
+supported here.
+
+
+*** I've got more questions than I have answers.
+
+That's not a question. =o)
+
+Seriously, though, if you have any questions about it, send me an
+email, or better yet: send an email to the discussion list about
+it.
+
+  - brickwall-discuss <brickwall-discuss@googlegroups.com>
+
+#+STARTUP: showall
+Local Variables:
+mode: org
+End:

@@ -25,11 +25,15 @@ Pretty simply, actually. Just do the following:
   - Throw the brickwall script into /usr/sbin
   - Add a symlink into /etc/network/if-up.d and /etc/network/if-down.d
     for it.
-  - Add a symlink to the script from /etc/rc2.d to setup the tables
+  - Add a symlink to the script from /etc/rcS.d to setup the tables
     cleanly at start up. No need for a kill script. Probably best to
     add this somewhere between priorities 00 to 40.
   - Add in some firewall-ports lines to the interfaces you want to have
     open ports on.
+
+Or if you're lazy:
+
+  - Issue a =make install= as root.
 
 Simple, no? There's some other utility to the script as well. It
 allows you to open and close ports on individual interfaces on a
